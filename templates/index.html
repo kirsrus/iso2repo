@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body {
+        font-family: sans-serif;
+        font-size: 10px;
+        margin: 0;
+        padding: 20px;
+      }
+
+      a {
+        color: #333;
+        text-decoration: none;
+        overflow-wrap: anywhere;
+        padding: 10px;
+        display: flex;
+        flex-grow: 1;
+      }
+
+      .table {
+        display: flex;
+        flex-direction: column;
+        width: fit-content;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        overflow-x: auto;
+        min-width: 500px;
+      }
+
+      .block {
+        display: flex;
+      }
+
+      pre {
+        margin: 0;
+        padding: 10px;
+      }
+
+      button {
+        font-size: inherit;
+        align-self: flex-start;
+        margin: 10px;
+        padding: 5px 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        outline: none;
+        background: none;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background-color: #244a7f14;
+      }
+
+      button:active {
+        background-color: #244a7f1a;
+      }
+
+      .row {
+        border-bottom: 1px solid #ddd;
+      }
+
+      .row:last-child {
+        border-bottom: none;
+      }
+
+      .row:hover {
+        background-color: #f5f5f5;
+      }
+
+      .dir {
+        font-weight: bold;
+      }
+
+      .file {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .file a,
+      .file .size {
+        display: inline-block;
+        vertical-align: middle;
+      }
+
+      .file .size {
+        color: #777;
+        padding-right: 10px;
+      }
+
+      .tools a {
+        font-weight: bold;
+        font-style: italic;
+        padding-left: 0px;
+      }
+
+      .copyright {
+        font-size: 7px;
+        color: #777;
+        padding-top: 5px;
+      }
+
+      .error {
+        padding: 10px;
+        color: #930404;
+        font-weight: bolder;
+      }
+    </style>
+    <title>iso2repo {{ .Version }}</title>
+  </head>
+  <body>
+    <h1>{{ .Title }}</h1>
+    <div class="table">
+      {{ range .ISOPath }}
+      <div class="row dir">
+        <a href="/repo/{{ . }}/">{{ . }}</a>
+      </div>
+      {{ end }}
+      {{ if ne .ISOPathLen 0 }}
+        {{ range .IPList }}
+      <div class="row file">
+        &nbsp;&nbsp;<a href="/sources.list?ip={{ . }}">Source List for IP <b>{{ . }}</b></a>
+      </div>
+        {{ end }}
+      {{ else }}
+      <div class="row error">
+        <span>Ни одного ISO-репозитория не найдено!</span>
+      </div>
+      {{ end }}
+      <div class="row file tools">
+        &nbsp;&nbsp;<a href="/static/">Static - статический контент</a>
+      </div>
+    </div>
+    <div class="copyright">{{ .Copyright }}</div>
+  </body>
+</html>
