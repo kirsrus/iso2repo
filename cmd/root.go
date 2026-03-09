@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -451,12 +452,14 @@ func rootRunE(cmd *cobra.Command, _ []string) error {
 			itemMsg := v.GetRepoString()
 
 			// Добавляем принудительный параметр x64, чтобы не было попытки получить x32 данные из репозитория
-			itemMsg = strings.Replace(itemMsg, "deb", "deb [arch=amd64]", 1)
+			itemMsg = strings.Replace(itemMsg, "deb", "#deb [arch=amd64]", 1)
 
 			addr := fmt.Sprintf("http://%s:%d", IP, webPort)
 			itemMsg = strings.Replace(itemMsg, "http://0.0.0.0", addr, 1)
 			data.DebPath = append(data.DebPath, itemMsg)
 		}
+
+		sort.Slice(data.DebPath, func(i, j int) bool { return data.DebPath[i] < data.DebPath[j] })
 
 		// Если запрос идёт не из браузера, а из wget или curl - отдавать только текст.
 		// Инече сформированную HTML таблицу
