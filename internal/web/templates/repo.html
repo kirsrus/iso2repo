@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iso2repo</title>
+    <style>
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            color: #1a1a1a;
+            background-color: #f5f5f5;
+            padding: 32px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0;
+            padding: 0;
+        }
+
+        h1 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #d0d0d0;
+            word-break: break-all;
+        }
+
+        .breadcrumbs {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 12px;
+        }
+
+        .breadcrumbs a {
+            color: #555;
+            text-decoration: none;
+        }
+
+        .breadcrumbs a:hover {
+            text-decoration: underline;
+        }
+
+        .breadcrumbs .separator {
+            color: #bbb;
+            margin: 0 4px;
+        }
+
+        .breadcrumbs .current {
+            color: #1a1a1a;
+        }
+
+        .sort-bar {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+
+        .sort-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 14px;
+            padding: 0;
+            border: 1px solid #d0d0d0;
+            border-radius: 2px;
+            background-color: transparent;
+            color: #bbb;
+            font-size: 9px;
+            line-height: 1;
+            cursor: pointer;
+            transition: color 0.15s ease, border-color 0.15s ease;
+            user-select: none;
+        }
+
+        .sort-btn:hover {
+            color: #888;
+            border-color: #bbb;
+        }
+
+        .sort-btn.active {
+            color: #555;
+            border-color: #aaa;
+            background-color: #f0f0f0;
+        }
+
+        .file-list {
+            list-style: none;
+            background-color: #ffffff;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 14px;
+            border-bottom: 1px solid #e8e8e8;
+            transition: background-color 0.15s ease;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .file-item:last-child {
+            border-bottom: none;
+        }
+
+        .file-item:hover {
+            background-color: #f5f5f5;
+        }
+
+        .file-icon {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            color: #555;
+        }
+
+        .file-name {
+            font-weight: 500;
+            color: #1a1a1a;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-size {
+            flex-shrink: 0;
+            margin-left: 12px;
+            font-size: 12px;
+            color: #aaa;
+            white-space: nowrap;
+        }
+
+        .empty-state {
+            padding: 32px 14px;
+            text-align: left;
+            color: #888;
+            font-size: 14px;
+        }
+
+        .footer {
+            margin-top: 24px;
+            padding-top: 12px;
+            border-top: 1px solid #d0d0d0;
+            font-size: 12px;
+            color: #aaa;
+        }
+
+        .footer a {
+            color: #888;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{.RepoName}}</h1>
+
+        <div class="breadcrumbs">
+            <a href="/">Репозитории</a>
+            <span class="separator">/</span>
+            {{range .Breadcrumbs}}
+                {{if .URL}}
+                    <a href="{{.URL}}">{{.Name}}</a>
+                    <span class="separator">/</span>
+                {{else}}
+                    <span class="current">{{.Name}}</span>
+                {{end}}
+            {{end}}
+        </div>
+
+        {{if .Entries}}
+        <div class="sort-bar">
+            <button class="sort-btn" id="sort-asc" title="Сортировать А→Я" onclick="sortEntries('asc')">▲</button>
+            <button class="sort-btn" id="sort-desc" title="Сортировать Я→А" onclick="sortEntries('desc')">▼</button>
+        </div>
+        <ul class="file-list" id="file-list">
+            {{range .Entries}}
+            <a class="file-item" href="{{.URL}}" data-name="{{.Name}}" data-isdir="{{.IsDir}}">
+                <span class="file-icon">{{if .IsDir}}📁{{else}}📄{{end}}</span>
+                <span class="file-name">{{.Name}}</span>
+                <span class="file-size">{{if not .IsDir}}{{.Size}}{{end}}</span>
+            </a>
+            {{end}}
+        </ul>
+        {{else}}
+        <div class="empty-state">Директория пуста.</div>
+        {{end}}
+
+        <script>
+            function sortEntries(order) {
+                var list = document.getElementById('file-list');
+                if (!list) return;
+
+                var items = Array.from(list.children);
+
+                items.sort(function(a, b) {
+                    var isDirA = a.getAttribute('data-isdir') === 'true';
+                    var isDirB = b.getAttribute('data-isdir') === 'true';
+
+                    // Директории всегда вверху, файлы внизу
+                    if (isDirA && !isDirB) return -1;
+                    if (!isDirA && isDirB) return 1;
+
+                    // Сортировка внутри своей группы
+                    var nameA = a.getAttribute('data-name').toLowerCase();
+                    var nameB = b.getAttribute('data-name').toLowerCase();
+                    if (nameA < nameB) return order === 'asc' ? -1 : 1;
+                    if (nameA > nameB) return order === 'asc' ? 1 : -1;
+                    return 0;
+                });
+
+                items.forEach(function(item) {
+                    list.appendChild(item);
+                });
+
+                document.getElementById('sort-asc').classList.toggle('active', order === 'asc');
+                document.getElementById('sort-desc').classList.toggle('active', order === 'desc');
+            }
+        </script>
+
+        <div class="footer"><a href="/">← К списку репозиториев</a></div>
+    </div>
+</body>
+</html>

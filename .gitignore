@@ -1,4 +1,12 @@
+.vscode
+vendor/
+dumps/
 build/
-.idea/
-.vscode/
-7z/
+*.ffs_gui
+*.ffs_db
+*.exe
+__*
+*.db
+servers.*
+!.golangci.yaml
+*.drawio

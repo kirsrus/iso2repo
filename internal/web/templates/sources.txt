@@ -1,0 +1,11 @@
+# iso2repo {{.Version}} https://github.com/kirsrus/iso2repo
+#
+# Help:
+#   echo "{{.ServerIP}}    repo.loc repo" | sudo tee -a /etc/hosts > /dev/null
+#   curl -s http://repo.loc:{{.Port}} | sudo tee /etc/apt/sources.list.d/iso2repo.list > /dev/null
+#   sudo nano /etc/apt/sources.list.d/iso2repo.list
+#   # ... Uncomment the necessary repositories ...
+#   sudo apt update
+# {{.CustomComment}}
+{{range .Repos}}#{{.}}
+{{end}}

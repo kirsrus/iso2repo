@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>iso2repo</title>
+    <style>
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            color: #1a1a1a;
+            background-color: #f5f5f5;
+            padding: 32px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0;
+            padding: 0;
+            position: relative;
+        }
+
+        .logo {
+            position: absolute;
+            top: 0%;
+            left: 50%;
+            transform: translate(-50%, -65%);
+            width: 200px;
+            height: auto;
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        h1 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 10px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #d0d0d0;
+        }
+
+        .repo-list {
+            list-style: none;
+            background-color: #ffffff;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .repo-item {
+            display: flex;
+            align-items: center;
+            padding: 4px 14px;
+            border-bottom: 1px solid #e8e8e8;
+            transition: background-color 0.15s ease;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .repo-item:last-child {
+            border-bottom: none;
+        }
+
+        .repo-item:hover {
+            background-color: #f5f5f5;
+        }
+
+        .repo-icon {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            color: #555;
+        }
+
+        .repo-name {
+            font-weight: 500;
+            color: #1a1a1a;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .repo-type {
+            flex-shrink: 0;
+            margin-left: 12px;
+            font-size: 12px;
+            color: #888;
+            white-space: nowrap;
+        }
+
+        .repo-path {
+            flex-shrink: 0;
+            margin-left: 12px;
+            font-size: 12px;
+            color: #aaa;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 300px;
+        }
+
+        .sort-bar {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+
+        .sort-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 14px;
+            padding: 0;
+            border: 1px solid #d0d0d0;
+            border-radius: 2px;
+            background-color: transparent;
+            color: #bbb;
+            font-size: 9px;
+            line-height: 1;
+            cursor: pointer;
+            transition: color 0.15s ease, border-color 0.15s ease;
+            user-select: none;
+        }
+
+        .sort-btn:hover {
+            color: #888;
+            border-color: #bbb;
+        }
+
+        .sort-btn.active {
+            color: #555;
+            border-color: #aaa;
+            background-color: #f0f0f0;
+        }
+
+        .empty-state {
+            padding: 32px 14px;
+            text-align: left;
+            color: #888;
+            font-size: 14px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-top: 15px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #d0d0d0;
+        }
+
+        .address-list {
+            list-style: none;
+            background-color: #ffffff;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .address-item {
+            display: flex;
+            align-items: center;
+            padding: 4px 14px;
+            border-bottom: 1px solid #e8e8e8;
+            transition: background-color 0.15s ease;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .address-item:last-child {
+            border-bottom: none;
+        }
+
+        .address-item:hover {
+            background-color: #f5f5f5;
+        }
+
+        .address-icon {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            color: #555;
+        }
+
+        .address-name {
+            font-weight: 500;
+            color: #1a1a1a;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 13px;
+        }
+
+        .address-arrow {
+            flex-shrink: 0;
+            margin-left: 12px;
+            font-size: 12px;
+            color: #aaa;
+            white-space: nowrap;
+        }
+
+        .footer {
+            margin-top: 24px;
+            padding-top: 12px;
+            border-top: 1px solid #d0d0d0;
+            font-size: 12px;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img class="logo" src="/logo.gif" alt="iso2repo">
+        <h1>Репозитории</h1>
+
+        {{if .Repos}}
+        <div class="sort-bar">
+            <button class="sort-btn" id="sort-asc" title="Сортировать А→Я" onclick="sortRepos('asc')">▲</button>
+            <button class="sort-btn" id="sort-desc" title="Сортировать Я→А" onclick="sortRepos('desc')">▼</button>
+        </div>
+        <ul class="repo-list" id="repo-list">
+            {{range .Repos}}
+            <a class="repo-item" href="/repo/{{.Name}}/" data-name="{{.Name}}">
+                <span class="repo-icon">{{if eq .Type "ISO"}}💿{{else if eq .Type "Extracted"}}📁{{else}}📂{{end}}</span>
+                <span class="repo-name">{{.Name}}</span>
+                <span class="repo-type">{{.TypeLabel}}</span>
+                <span class="repo-path" title="{{.Path}}">{{.Path}}</span>
+            </a>
+            {{end}}
+        </ul>
+        {{else}}
+        <div class="empty-state">Нет доступных репозиториев.</div>
+        {{end}}
+
+        {{if .Addresses}}
+        <h2 class="section-title">Адреса для sources.list</h2>
+        <ul class="address-list">
+            {{range .Addresses}}
+            <a class="address-item" href="{{.URL}}">
+                <span class="address-icon">🌐</span>
+                <span class="address-name">{{.Address}}</span>
+                <span class="address-arrow">→</span>
+            </a>
+            {{end}}
+        </ul>
+        {{end}}
+
+        {{if .RootDir}}
+        <h2 class="section-title">Файлы</h2>
+        <ul class="address-list">
+            <a class="address-item" href="/static/">
+                <span class="address-icon">📂</span>
+                <span class="address-name">{{.RootDir}}</span>
+                <span class="address-arrow">→</span>
+            </a>
+        </ul>
+        {{end}}
+
+        <script>
+            function sortRepos(order) {
+                var list = document.getElementById('repo-list');
+                if (!list) return;
+
+                var items = Array.from(list.children);
+
+                items.sort(function(a, b) {
+                    var nameA = a.getAttribute('data-name').toLowerCase();
+                    var nameB = b.getAttribute('data-name').toLowerCase();
+                    if (nameA < nameB) return order === 'asc' ? -1 : 1;
+                    if (nameA > nameB) return order === 'asc' ? 1 : -1;
+                    return 0;
+                });
+
+                items.forEach(function(item) {
+                    list.appendChild(item);
+                });
+
+                document.getElementById('sort-asc').classList.toggle('active', order === 'asc');
+                document.getElementById('sort-desc').classList.toggle('active', order === 'desc');
+            }
+        </script>
+
+        <div class="footer">iso2repo - {{.Copyright}} версия {{.Version}}</div>
+    </div>
+</body>
+</html>

@@ -1,124 +1,128 @@
+// Package sevenz предоставляет интерфейс для работы с утилитой 7z.
+// Поддерживает поиск бинарника 7z в системе, выполнение команд,
+// парсинг вывода и потоковое извлечение файлов из ISO-образов.
 package sevenz
 
 import (
-	"bytes"
+	"context"
 	"fmt"
 	"io"
-	"os"
-	"path"
+	"log/slog"
+	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/juju/errors"
-	"github.com/sirupsen/logrus"
+	"github.com/cockroachdb/errors"
+	"github.com/kirsrus/iso2repo/models"
 	"github.com/spf13/cast"
-	"github.com/thoas/go-funk"
 )
 
-var (
-	ErrIsNotRepo = errors.New("is not repo")
+var once sync.Once
 
-	warn7zVersionNotFoundKey     = false
-	warn7zVersionNotSupportedKey = false
-)
-
-const (
-	sevenZFolderName = "7-Zip"
-)
-
+// SevenZ предоставляет методы для работы с утилитой 7z.
+// Содержит платформозависимую логику поиска бинарника и выполнения команд.
 type SevenZ struct {
-	log *logrus.Entry
-
-	// Путь к обрабатываему ISO-файлу
-	ISOPath string
-
-	// Версия программы
-	Version string
-
-	// Путь к бинарнику 7z
-	sevenZPath string
-
-	// Дерево файлов в образе ISO
-	filesTree []File
-
-	// Стока для подключения репозитория извне
-	sourceString string
-
-	// Префикс для путей к файлам внутри архива. Нужен для отличия путей в ISO файлах (вида boot\grub\i386-efi\fdt.lst),
-	// от путей TAR файлов (вида .\dists\1.7_x86-64\main, т.е. с префиксом `.\`)
-	pathPrefix string
+	log           *slog.Logger
+	sevenZPath    string
+	sevenZVersion string
 }
 
-// NewSevenZ читает файл ISO-репозитория.
-// Если ISO-образ не является репозиторием, возвращается ошибка ErrIsNotRepo
-func NewSevenZ(ISOPath string, log *logrus.Logger) (*SevenZ, error) {
-	var err error
+// NewSevenZ ищет утилиту 7z в системе, определяет её версию и возвращает
+// готовый к работе экземпляр SevenZ. Если 7z не найдена, возвращается ошибка.
+func NewSevenZ(log *slog.Logger) (*SevenZ, error) {
 	if log == nil {
-		log = logrus.New()
-		log.Out = io.Discard
+		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 
-	if _, err := os.Stat(ISOPath); os.IsNotExist(err) {
-		return nil, errors.Annotate(err, ISOPath)
+	m := &SevenZ{
+		log: log.With("sub", "7z"),
 	}
 
-	m := SevenZ{
-		log:     log.WithField("scope", "7z"),
-		ISOPath: ISOPath,
+	if !m.check7z() {
+		return nil, errors.New("на комьютере не обнаружена утилита 7z, без неё невозможно работать с .iso файлами")
 	}
 
-	m.sevenZPath, err = m.find7ZBin()
+	var err error
+	m.sevenZVersion, err = m.read7ZVersion()
 	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	m.Version, err = m.read7ZVersion()
-	if err != nil {
-		return nil, errors.Trace(err)
-	} else if m.Version == "0.0.0" {
-		if !warn7zVersionNotFoundKey {
-			m.log.Warn("не удалось определить номер версии 7z (результат работы программы не гарантирован)")
-			warn7zVersionNotFoundKey = true
-		}
+		return nil, err
+	} else if m.sevenZVersion == "0.0.0" {
+		m.log.Warn("не удалось определить номер версии 7z (результат работы программы не гарантирован)")
 	} else {
-		versionStr := strings.Split(m.Version, ".")
+		versionStr := strings.Split(m.sevenZVersion, ".")
 		version := make([]int, 0)
-		funk.ForEach(versionStr, func(v string) {
+
+		for _, v := range versionStr {
 			version = append(version, cast.ToInt(v))
+		}
+
+		// Выводим отчёт или предупреждение только один раз.
+		once.Do(func() {
+			if version[0] < 16 || version[0] > 26 {
+				m.log.Warn(fmt.Sprintf("версия 7z %s не проверялась (результат работы программы не гарантирован)", m.sevenZVersion))
+			} else {
+				m.log.Info(fmt.Sprintf("версия 7z %s", m.sevenZVersion))
+			}
 		})
 
-		if version[0] < 16 || version[0] > 22 {
-			if !warn7zVersionNotSupportedKey {
-				m.log.Warnf("версия 7z %s не проверялась (результат работы программы не гарантирован)", m.Version)
-				warn7zVersionNotSupportedKey = true
-			}
-		}
 	}
 
-	m.filesTree, err = m.readFilesFromISO(m.ISOPath)
-	if err != nil {
-		return nil, errors.Annotate(err, m.ISOPath)
-	}
-
-	// Формируем строку для подключения. По этой строке понимаем, что это диск с репозиторием или нет
-	m.sourceString, err = m.createSourceString()
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	return &m, nil
+	return m, nil
 }
 
-func (m *SevenZ) readFilesFromISO(ISOPath string) ([]File, error) {
-	output, err := m.exec7zOnce([]string{"l", ISOPath})
+// Path возвращает путь к бинарнику 7z.
+func (m *SevenZ) Path() string {
+	return m.sevenZPath
+}
+
+// Version возвращает версию 7z в формате "major.minor.0".
+func (m *SevenZ) Version() string {
+	return m.sevenZVersion
+}
+
+// ExecOnce запускает программу 7z с указанными аргументами и возвращает
+// её вывод в виде одной строки. Платформозависимая реализация находится
+// в sevenz_windows.go / sevenz_linux.go.
+func (m *SevenZ) ExecOnce(args []string) (string, error) {
+	return m.exec7zOnce(args)
+}
+
+// Open открывает файл внутри ISO для потокового чтения.
+// При отмене ctx процесс 7z принудительно завершается.
+func (m *SevenZ) Open(ctx context.Context, isoPath, filePath string) (io.ReadCloser, error) {
+	file := strings.TrimLeft(filePath, "/")
+
+	args := []string{"e", isoPath, "-so", file}
+	m.log.Debug(fmt.Sprintf("7z: exec - %s %s", m.sevenZPath, strings.Join(args, " ")))
+
+	// CommandContext автоматически убивает процесс при отмене ctx
+	cmd := exec.CommandContext(ctx, m.sevenZPath, args...)
+
+	pipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
-	result := make([]File, 0)
+	if err := cmd.Start(); err != nil {
+		pipe.Close()
+		return nil, err
+	}
+
+	return &cmdReadCloser{pipe: pipe, cmd: cmd}, nil
+}
+
+// ListFiles получает список всех файлов в ISO образе и парсит их в
+// древовидную структуру []models.Entry.
+func (m *SevenZ) ListFiles(isoPath string) ([]models.Entry, error) {
+	output, err := m.exec7zOnce([]string{"l", isoPath})
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]models.Entry, 0)
 
 	reLine := regexp.MustCompile(`^(\d+-\d+-\d+)\s+(\d+:\d+:\d+)\s+(.|D)\.\.\.\.\s+(\d*)\s+(\d*)\s+([^ ]+)$`)
 
@@ -127,18 +131,9 @@ func (m *SevenZ) readFilesFromISO(ISOPath string) ([]File, error) {
 
 		match := reLine.FindStringSubmatch(line)
 		if len(match) != 0 {
-
-			// Если это TAR архив (определяем по наличию директории '.',
-			// то устанавливаем префикс доступа к файлам. Саму же директорию пропускаем
-			if match[6] == "." {
-				m.pathPrefix = ".\\"
-				continue
-			}
-			match[6] = strings.TrimPrefix(match[6], m.pathPrefix)
-
-			newFileOrDir := File{
+			newFileOrDir := models.Entry{
 				IsDir: match[3] == "D",
-				Size:  cast.ToInt(match[4]),
+				Size:  cast.ToInt64(match[4]),
 				Name:  filepath.Base(match[6]),
 			}
 
@@ -146,13 +141,12 @@ func (m *SevenZ) readFilesFromISO(ISOPath string) ([]File, error) {
 			testTime := match[1] + " " + match[2]
 			t, err := time.Parse("2006-01-02 15:04:05", testTime)
 			if err != nil {
-				m.log.Warnf("не удалось распарсить время создания файла/директории '%s'", testTime)
+				m.log.Warn(fmt.Sprintf("не удалось распарсить время создания файла/директории '%s'", testTime))
 			}
 			newFileOrDir.CreateAt = t
 
 			// Нормализуем путь и интегрируем в дерево путей
-
-			filePathParts := make([]File, 0)
+			filePathParts := make([]models.Entry, 0)
 			filePath := strings.ReplaceAll(match[6], "\\", "/")
 			filePath = strings.TrimPrefix(filePath, "/")
 			filePath = strings.TrimSuffix(filePath, "/")
@@ -160,9 +154,9 @@ func (m *SevenZ) readFilesFromISO(ISOPath string) ([]File, error) {
 			filePathSplit := strings.Split(filePath, "/")
 			if len(filePathSplit) > 1 {
 				for _, pathPart := range filePathSplit[:len(filePathSplit)-1] {
-					filePathParts = append(filePathParts, File{
+					filePathParts = append(filePathParts, models.Entry{
 						IsDir:    true,
-						Children: make([]File, 0),
+						Children: make([]models.Entry, 0),
 						Name:     pathPart,
 					})
 				}
@@ -176,234 +170,94 @@ func (m *SevenZ) readFilesFromISO(ISOPath string) ([]File, error) {
 	return result, nil
 }
 
-// Определяет версию установленного 7z. Если версию определить не удалось, возвращается
-// версия "0.0.0"
-func (m SevenZ) read7ZVersion() (string, error) {
+// check7z проверяет наличие утилиты 7z. Если утилита обнаружена, возвращается true
+// и путь к бинарнику сохраняется во внутренней переменной.
+func (m *SevenZ) check7z() bool {
+	path, ok := m.find7z()
+	if !ok {
+		return false
+	}
+
+	m.sevenZPath = path
+
+	return true
+}
+
+// read7ZVersion определяет версию установленного 7z. Если версию определить
+// не удалось, возвращается версия "0.0.0".
+func (m *SevenZ) read7ZVersion() (string, error) {
 	output, err := m.exec7zOnce([]string{})
 	if err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 
+	// Регулярки для поиска версии в выводе 7z
 	reList := []*regexp.Regexp{
-		// 7-Zip 22.01 (x64) : Copyright (c) 1999-2022 Igor Pavlov : 2022-07-15
-		regexp.MustCompile(`^[0-9a-zA-z-]+\s+(\d+.\d+)`),
-		// 7-Zip [64] 16.02 : Copyright (c) 1999-2016 Igor Pavlov : 2016-05-21
-		regexp.MustCompile(`^[0-9a-zA-z-]+\s+\[\d+]\s+(\d+.\d+)`),
+		regexp.MustCompile(`^[0-9a-zA-Z-]+\s+(\d+\.\d+)`),
+		regexp.MustCompile(`^[0-9a-zA-Z-]+\s+\[\d+]\s+(\d+\.\d+)`),
 	}
 
-	for lineIdx, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
+	// Берём только первую строку — остальные не нужны
+	firstLine := strings.TrimSpace(output)
+	if idx := strings.IndexByte(firstLine, '\n'); idx >= 0 {
+		firstLine = strings.TrimSpace(firstLine[:idx])
+	}
 
-		if lineIdx == 0 {
-
-			match := make([]string, 0)
-			for _, re := range reList {
-				match = re.FindStringSubmatch(line)
-				if len(match) != 0 {
-					break
-				}
-			}
-			if len(match) == 0 {
-				return "0.0.0", nil
-			}
-
-			result := make([]string, 0)
-			for _, i := range strings.Split(match[1], ".") {
-				result = append(result, cast.ToString(cast.ToInt(i)))
-			}
-			result = append(result, "0")
-
-			return strings.Join(result, "."), nil
+	var match []string
+	for _, re := range reList {
+		if match = re.FindStringSubmatch(firstLine); len(match) > 0 {
+			break
 		}
 	}
+	if len(match) == 0 {
+		return "0.0.0", nil
+	}
 
-	return "0.0.0", nil
+	// Нормализация версии: гарантируем формат major.minor.0
+	parts := strings.SplitN(match[1], ".", 2)
+	major := cast.ToString(cast.ToInt(parts[0]))
+	minor := "0"
+	if len(parts) > 1 {
+		minor = cast.ToString(cast.ToInt(parts[1]))
+	}
+
+	return major + "." + minor + ".0", nil
 }
 
-// ReadPath по пути path возвращает или целевой файл, или списки директорий и файлов
-// на уровне, указанном в path
-func (m SevenZ) ReadPath(pathDirOrFile string) (*File, []File, error) {
-	pathItem := strings.TrimSpace(pathDirOrFile)
-	pathItem = strings.TrimPrefix(pathItem, "/")
-	pathItem = strings.TrimSuffix(pathItem, "/")
-
-	// Определяем папку
-	currentLevel := m.filesTree
-
-	pathParts := strings.Split(pathItem, "/")
-	if len(pathParts) > 1 {
-		for _, pathPart := range pathParts[:len(pathParts)-1] {
-			found := false
-			for _, v := range currentLevel {
-				if v.Name == pathPart {
-					currentLevel = v.Children
-					found = true
+// recurseFileAdd рекурсивно добавляет элемент в дерево, создавая промежуточные
+// директории при необходимости.
+func recurseFileAdd(pathParts []models.Entry, positionInPath int, pathTree *[]models.Entry) {
+	if positionInPath < len(pathParts) { // Добавляется директория
+		if pathParts[positionInPath].IsDir {
+			foundedIndex := -1
+			for i, v := range *pathTree {
+				if v.Name == pathParts[positionInPath].Name {
+					foundedIndex = i
 					break
 				}
 			}
 
-			if !found {
-				m.log.Errorf("не найден путь '%s'", pathDirOrFile)
-				return nil, nil, errors.Errorf("не найден путь '%s'", pathDirOrFile)
-			}
-		}
-	}
-
-	// Заходим в директорию или возвращаем файл
-	if pathItem != "" { // Корневая директория
-		pathEndFile := path.Base(pathItem)
-		found := false
-		for _, v := range currentLevel {
-			if v.Name == pathEndFile {
-				if v.IsDir {
-					currentLevel = v.Children
-				} else {
-					return &v, make([]File, 0), nil
+			if foundedIndex == -1 { // Добавляем новую директорию
+				newDir := models.Entry{
+					IsDir:    true,
+					Children: make([]models.Entry, 0),
+					Name:     pathParts[positionInPath].Name,
 				}
-				found = true
-				break
+				recurseFileAdd(pathParts, positionInPath+1, &newDir.Children)
+				*pathTree = append(*pathTree, newDir)
+			} else { // Используем существующую
+				recurseFileAdd(pathParts, positionInPath+1, &(*pathTree)[foundedIndex].Children)
 			}
-		}
-
-		if !found {
-			m.log.Errorf("не найден путь '%s:%s'", filepath.Base(m.ISOPath), pathDirOrFile)
-			return nil, nil, errors.Errorf("не найден путь '%s", pathDirOrFile)
-		}
-	}
-
-	// Читаем содержимое папки
-	inDirs := make([]File, 0)
-	inFiles := make([]File, 0)
-
-	for _, v := range currentLevel {
-		if v.IsDir {
-			inDirs = append(inDirs, v)
-		} else {
-			inFiles = append(inFiles, v)
-		}
-	}
-
-	sort.Slice(inDirs, func(i, j int) bool { return inDirs[i].Name < inDirs[j].Name })
-	sort.Slice(inFiles, func(i, j int) bool { return inFiles[i].Name < inFiles[j].Name })
-
-	return nil, append(inDirs, inFiles...), nil
-}
-
-// readDir возвращает содержимое директории со всеми потомками по абсолютному пути
-// Разделитель путей '/' без начального слэша:
-//
-//	"path/to/dir"
-//
-// Если директория не найдена, возвращается ошибка os.ErrNotExist
-func (m *SevenZ) readDir(absDirPath string) ([]File, error) {
-	absDirPathClean := absDirPath
-	absDirPathClean = strings.ReplaceAll(absDirPathClean, "\\", "/")
-	absDirPathClean = strings.TrimSpace(absDirPathClean)
-	absDirPathClean = strings.TrimLeft(absDirPathClean, "/")
-
-	absDirPathSplit := strings.Split(absDirPathClean, "/")
-
-	currentFolder := m.filesTree
-	for _, pathBit := range absDirPathSplit {
-		foundDir := false
-		for i := range currentFolder {
-			if currentFolder[i].Name == pathBit && currentFolder[i].IsDir {
-				currentFolder = currentFolder[i].Children
-				foundDir = true
-				break
+		} else { // Добавляем оконечный файл
+			newFile := models.Entry{
+				CreateAt: time.Time{},
+				IsDir:    false,
+				Size:     pathParts[positionInPath].Size,
+				FilePath: pathParts[positionInPath].FilePath,
+				Children: make([]models.Entry, 0),
+				Name:     pathParts[positionInPath].Name,
 			}
-
-		}
-		if !foundDir {
-			// Путь не найден
-			return nil, os.ErrNotExist
+			*pathTree = append(*pathTree, newFile)
 		}
 	}
-	return currentFolder, nil
-}
-
-// createSourceString создаёт строку подключения репозитория в sources.list. Если строку сделать не удалось,
-// и возвратилась ошибка ErrIsNotRepo - значит это не диск с репозиторием.
-// Так как неизвестен на данном этапе IP сервера, он указывается как 'http://0.0.0.0'
-func (m *SevenZ) createSourceString() (string, error) {
-	distPath := "dists"
-
-	inDist, err := m.readDir(distPath)
-	if err != nil {
-		return "", ErrIsNotRepo
-	}
-
-	distributeName := ""
-	for _, v := range inDist {
-		if v.IsDir {
-			distributeName = v.Name
-		}
-	}
-	if distributeName == "" {
-		return "", ErrIsNotRepo
-	}
-
-	findPath := path.Join(distPath, distributeName)
-	inDistSub, err := m.readDir(findPath)
-	if err != nil {
-		return "", ErrIsNotRepo
-	}
-
-	releaseName := ""
-	for _, v := range inDistSub {
-		if v.Name == "Release" && !v.IsDir {
-			releaseName = v.Name
-			break
-		}
-	}
-	if releaseName == "" {
-		return "", ErrIsNotRepo
-	}
-
-	releaseBuff := new(bytes.Buffer)
-	findPath = path.Join(distPath, distributeName, releaseName)
-	err = m.ReadFile(findPath, releaseBuff)
-	if err != nil {
-		return "", errors.Trace(err)
-	}
-
-	// Разбираем содержимое файла Release
-	findPrefix := "components:"
-	components := make([]string, 0)
-	for _, v := range strings.Split(releaseBuff.String(), "\n") {
-		line := strings.TrimSpace(v)
-		if strings.HasPrefix(strings.ToLower(line), findPrefix) {
-			lineClean := strings.ReplaceAll(line, "\t", " ")
-			linePart := strings.Split(lineClean[len(findPrefix):], " ")
-			for _, p := range linePart {
-				pClean := strings.TrimSpace(p)
-				if pClean != "" && !funk.ContainsString(components, pClean) {
-					// Проверяем, что такая директория существует
-					findDir := path.Join(distPath, distributeName, pClean)
-					_, err := m.readDir(findDir)
-					if err != nil {
-						continue
-					}
-					// Директория существует
-					components = append(components, pClean)
-				}
-			}
-			break
-		}
-	}
-	if len(components) == 0 {
-		return "", errors.Errorf("в файле '%s/%s/Release' не найден блок '%s'", distPath, distributeName, findPrefix)
-	}
-
-	// Подготовка результата
-	sort.Strings(components)
-	result := fmt.Sprintf("deb http://0.0.0.0/repo/%s %s %s", filepath.Base(m.ISOPath), distributeName, strings.Join(components, " "))
-
-	return result, nil
-}
-
-// GetRepoString возвращает строку подключения в sources.list
-// Так как неизвестен на данном этапе IP сервера, он указывается как 'http://0.0.0.0'
-func (m SevenZ) GetRepoString() string {
-	return m.sourceString
 }
