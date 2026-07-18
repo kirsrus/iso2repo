@@ -70,7 +70,12 @@ func rootRun(cmd *cobra.Command, _ []string) {
 
 	rootDir, _ := cmd.Flags().GetString(FlagRootDir)
 	if rootDir == "" {
-		rootDir = filepath.Dir(os.Args[0])
+		execPath, errExec := os.Executable()
+		if errExec != nil {
+			log.Error("не удалось определить путь к исполняемому файлу", slog.Any("error", errExec))
+			return
+		}
+		rootDir = filepath.Dir(execPath)
 		log.Info(fmt.Sprintf("автоматически определена корневая директория с образами: %s", rootDir))
 	} else {
 		log.Info(fmt.Sprintf("установлена корневая директория с образами: %s", rootDir))
