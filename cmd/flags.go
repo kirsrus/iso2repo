@@ -10,4 +10,6 @@ const (
 	FlagPollInterval = "interval"
 	// Порт WEB-сервера.
 	FlagPort = "port"
+	// Флаг для указания типа логирования.
+	FlagLogging = "logging"
 )
