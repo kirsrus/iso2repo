@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -129,6 +130,53 @@ func NewWeb(config *Config) (*Web, error) {
 	return m, nil
 }
 
+// getLocalIPs возвращает список всех не-loopback IPv4 адресов сетевых интерфейсов,
+// а также статические адреса repo.loc и 127.0.0.1.
+func getLocalIPs() []string {
+	// Статические адреса, доступные всегда
+	ips := []string{
+		"repo.loc",
+		"127.0.0.1",
+	}
+
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return ips
+	}
+
+	for _, iface := range interfaces {
+		// Пропускаем неактивные интерфейсы
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		// Пропускаем loopback
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			// Пропускаем IPv6 и nil
+			if ip == nil || ip.To4() == nil {
+				continue
+			}
+			ips = append(ips, ip.String())
+		}
+	}
+	return ips
+}
+
 // Run запускает веб-сервер. Блокирующий.
 func (m *Web) Run(ctx context.Context) error {
 	m.log.Debug("запуск веб-сервера")
@@ -144,7 +192,15 @@ func (m *Web) Run(ctx context.Context) error {
 
 	// Запускаем сервер в отдельной горутине
 	go func() {
-		m.log.Info(fmt.Sprintf("сервер стартовал на порту :%d", m.port))
+		// Выводим в лог все IP-адреса, на которых доступен сервер
+		ips := getLocalIPs()
+		if len(ips) == 0 {
+			m.log.Info(fmt.Sprintf("сервер стартовал на порту :%d", m.port))
+		} else {
+			for _, ip := range ips {
+				m.log.Info(fmt.Sprintf("сервер стартовал на %s:%d", ip, m.port))
+			}
+		}
 		if err := m.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errChan <- errors.Wrap(err, fmt.Sprintf("ошибка запуска веб-сервера на порту :%d", m.port))
 		}
