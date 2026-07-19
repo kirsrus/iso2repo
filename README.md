@@ -101,6 +101,93 @@ task build_linux
 4. HTTP-сервер принимает события о найденных/потерянных репозиториях и обслуживает запросы APT-клиентов.
 5. Все остальные файлы и директории из корневого каталога (не являющиеся репозиториями) доступны по адресу `/static/` для просмотра в браузере — PDF, TXT, видео, аудио и любые другие форматы.
 
+## Зависимости
+
+### 7z (для работы с запакованными ISO-образами)
+
+Для работы с запакованными ISO-образами (файлами `.iso`) программа использует архиватор `7z`. Если в системе не установлен `7z`, программа не сможет распаковать ISO-образ для анализа его содержимого.
+
+**Установка на Windows:**
+
+Скачайте и установите [7-Zip](https://www.7-zip.org/) официального сайта. Убедитесь, что путь к `7z.exe` (обычно `C:\Program Files\7-Zip\`) добавлен в системную переменную `PATH`, либо программа сама найдёт его в стандартном пути установки.
+
+**Установка на Linux (Debian/Ubuntu):**
+
+```bash
+sudo apt install p7zip-full
+```
+
+**Установка на Linux (Arch Linux):**
+
+```bash
+sudo pacman -S p7zip
+```
+
+**Установка на Linux (Fedora/RHEL):**
+
+```bash
+sudo dnf install p7zip p7zip-plugins
+```
+
+## Подготовка репозиториев
+
+### Скачивание APT-репозитория из интернета с помощью apt-mirror
+
+Для создания локальной копии APT-репозитория из интернета можно использовать утилиту `apt-mirror`.
+
+**Установка apt-mirror:**
+
+```bash
+sudo apt install apt-mirror
+```
+
+**Настройка и запуск:**
+
+1. Отредактируйте файл конфигурации `/etc/apt/mirror.list`, указав нужный репозиторий. Например, для зеркала Ubuntu Oracular:
+
+```
+deb http://ru.archive.ubuntu.com/ubuntu oracular main restricted universe multiverse
+deb http://ru.archive.ubuntu.com/ubuntu oracular-updates main restricted universe multiverse
+deb http://ru.archive.ubuntu.com/ubuntu oracular-security main restricted universe multiverse
+```
+
+2. Запустите загрузку:
+
+```bash
+sudo apt-mirror
+```
+
+Все загруженные пакеты будут сохранены в директории, указанной в конфигурации (по умолчанию `/mnt/data/apt-mirror/mirror/ru.archive.ubuntu.com/ubuntu/`).
+
+### Создание ISO-образа из скачанного репозитория
+
+После того как репозиторий скачан, из него можно создать ISO-образ с помощью утилиты `genisoimage` (пакет `genisoimage` в Ubuntu/Debian):
+
+```bash
+sudo apt install genisoimage
+```
+
+Пример создания ISO-образа:
+
+```bash
+genisoimage -f -J -joliet-long -r -allow-lowercase -allow-multidot -allow-limited-size -o ~/repository-ru.archive.ubuntu.com-oracular.iso /mnt/data/apt-mirror/mirror/ru.archive.ubuntu.com/ubuntu/
+```
+
+**Пояснение параметров:**
+
+| Параметр | Описание |
+|----------|----------|
+| `-f` | Следовать символическим ссылкам |
+| `-J` | Создать Joliet-расширения для совместимости с Windows |
+| `-joliet-long` | Разрешить длинные имена файлов в Joliet (до 103 символов) |
+| `-r` | Использовать Rock Ridge-расширения с POSIX-правами |
+| `-allow-lowercase` | Разрешить строчные буквы в именах файлов |
+| `-allow-multidot` | Разрешить множественные точки в именах файлов |
+| `-allow-limited-size` | Разрешить файлы размером более 2 ГБ |
+| `-o` | Путь к выходному ISO-образу |
+
+Готовый ISO-образ можно поместить в директорию, отслеживаемую `iso2repo`, и он сразу станет доступен как APT-репозиторий по HTTP.
+
 ## Лицензия
 
 MIT License
