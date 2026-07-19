@@ -41,7 +41,7 @@ tasks:
       GOOS: linux
       GODEBUG: cgocheck=0
     cmds:
-      - go build -ldflags "-X cmd.version={{.GIT_VERSION}}" -v -o build/iso2repo main.go
+      - go build -ldflags "-X github.com/kirsrus/iso2repo/cmd.version={{.GIT_VERSION}}" -v -o build/iso2repo main.go
 
   lint:
     cmds:
