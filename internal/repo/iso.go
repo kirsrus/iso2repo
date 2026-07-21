@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/kirsrus/iso2repo/models"
 	"github.com/kirsrus/iso2repo/pkg/sevenz"
+	"golang.org/x/exp/slog"
 )
 
 var _ models.Repoes = (*RepoIso)(nil)
@@ -34,7 +34,7 @@ func NewRepoIso(fullPath string, log *slog.Logger) (*RepoIso, error) {
 	var err error
 
 	if log == nil {
-		log = slog.New(slog.NewTextHandler(io.Discard, nil))
+		log = slog.New(slog.NewTextHandler(io.Discard))
 	}
 
 	// Создаём экземпляр SevenZ для работы с утилитой 7z

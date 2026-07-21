@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/kirsrus/iso2repo/models"
+	"golang.org/x/exp/slog"
 )
 
 var _ models.Workerses = (*Watcher)(nil)
@@ -58,7 +58,7 @@ type Config struct {
 // NewWatcher конструктор структуры Watcher. RootDir - корневая директория, которая
 // будет отслеживаться. Config описавает конфигурацию структуры.
 func NewWatcher(config *Config) (*Watcher, error) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.NewTextHandler(io.Discard))
 	if config.Log != nil {
 		log = config.Log
 	}

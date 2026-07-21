@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/cockroachdb/errors"
 	"github.com/kirsrus/iso2repo/models"
+	"golang.org/x/exp/slog"
 )
 
 var _ models.Workerses = (*Repo)(nil)
@@ -52,7 +52,7 @@ type Config struct {
 
 // Newrepo конструктор Repo.
 func NewRepo(config *Config) (*Repo, error) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.NewTextHandler(io.Discard))
 	if config.Log != nil {
 		log = config.Log
 	}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -15,6 +14,7 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/gin-gonic/gin"
 	"github.com/kirsrus/iso2repo/models"
+	"golang.org/x/exp/slog"
 )
 
 //go:embed templates/*
@@ -83,7 +83,7 @@ type Config struct {
 
 // NewWeb конструктор веб-сервера
 func NewWeb(config *Config) (*Web, error) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.NewTextHandler(io.Discard))
 	if config.Log != nil {
 		log = config.Log
 	}

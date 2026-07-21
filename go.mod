@@ -1,6 +1,6 @@
 module github.com/kirsrus/iso2repo
 
-go 1.20.0
+go 1.20
 
 require (
 	github.com/blakesmith/ar v0.0.0-20190502131153-809d4375e1fb
@@ -11,6 +11,7 @@ require (
 	github.com/spf13/cast v1.8.0
 	github.com/spf13/cobra v1.10.2
 	github.com/ulikunitz/xz v0.5.15
+	golang.org/x/exp v0.0.0-20230307190834-24139beb5833
 	golang.org/x/sync v0.11.0
 )
 

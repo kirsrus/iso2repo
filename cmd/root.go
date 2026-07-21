@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	"github.com/kirsrus/iso2repo/models"
 	"github.com/kirsrus/iso2repo/pkg/logging"
 	"github.com/spf13/cobra"
+	"golang.org/x/exp/slog"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -58,13 +58,13 @@ func rootRun(cmd *cobra.Command, _ []string) {
 	var err error
 
 	levelFlag, _ := cmd.Flags().GetString(FlagLevel)
-	flagLogging, _ := cmd.Flags().GetBool(FlagLogging)
+	// flagLogging, _ := cmd.Flags().GetBool(FlagLogging)
 
 	log := logging.NewTintLogging(levelFlag)
 
-	if flagLogging {
-		log = logging.NewLoggingWithStringLevel(levelFlag, 1)
-	}
+	// if flagLogging {
+	// 	log = logging.NewLoggingWithStringLevel(levelFlag, 1)
+	// }
 
 	log.Info(fmt.Sprintf("программа iso2repo стартовала; версия %s", version))
 
@@ -72,7 +72,7 @@ func rootRun(cmd *cobra.Command, _ []string) {
 	if rootDir == "" {
 		execPath, errExec := os.Executable()
 		if errExec != nil {
-			log.Error("не удалось определить путь к исполняемому файлу", slog.Any("error", errExec))
+			log.Error("не удалось определить путь к исполняемому файлу", err, slog.Any("error", errExec))
 			return
 		}
 		rootDir = filepath.Dir(execPath)
@@ -104,7 +104,7 @@ func rootRun(cmd *cobra.Command, _ []string) {
 		ChangeFiles:  changeFiles,
 	})
 	if err != nil {
-		log.Error("не удалось создать процесс отслеживания директории с образами", slog.Any("error", err))
+		log.Error("не удалось создать процесс отслеживания директории с образами", err, slog.Any("error", err))
 
 		return
 	}
@@ -119,7 +119,7 @@ func rootRun(cmd *cobra.Command, _ []string) {
 		ChangeRepos: changeRepo,
 	})
 	if err != nil {
-		log.Error("не удалось создать процесс отслеживания репозиториев", slog.Any("error", err))
+		log.Error("не удалось создать процесс отслеживания репозиториев", err, slog.Any("error", err))
 
 		return
 	}
@@ -143,7 +143,7 @@ func rootRun(cmd *cobra.Command, _ []string) {
 		Version:     strings.ReplaceAll(version, "v", ""),
 	})
 	if err != nil {
-		log.Error("не удалось создать веб-сервер", slog.Any("error", err))
+		log.Error("не удалось создать веб-сервер", err, slog.Any("error", err))
 
 		return
 	}
@@ -161,7 +161,7 @@ func rootRun(cmd *cobra.Command, _ []string) {
 	// Если хотя бы один воркер вернул ошибку, err будет не nil.
 	err = g.Wait()
 	if err != nil {
-		log.Error("программа завершена с ошибкой", slog.Any("error", err))
+		log.Error("программа завершена с ошибкой", err, slog.Any("error", err))
 
 		return
 	}

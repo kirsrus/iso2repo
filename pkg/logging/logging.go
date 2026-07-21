@@ -1,10 +1,10 @@
 package logging
 
 import (
-	"log/slog"
+	"context"
 	"os"
 
-	"github.com/kirsrus/iso2repo/pkg/logging/tint"
+	"golang.org/x/exp/slog"
 )
 
 var (
@@ -17,64 +17,54 @@ var (
 	}
 )
 
-// NewLoggingStringLevel создаёт лог с уровнем в текстовом виде.
-func NewLoggingWithStringLevel(level string, deph int) *slog.Logger {
-	l, ok := logLevelMap[level]
-	if !ok {
-		l = slog.LevelInfo
-	}
-
-	return NewLogging(l, deph)
+// LevelFilterHandler оборачивает любой обработчик и пропускает только записи
+// с уровнем не ниже заданного.
+type LevelFilterHandler struct {
+	inner    slog.Handler
+	minLevel slog.Level
 }
 
-// NewLogging создает лог с уровнем и глубиной вывода истоника возникновения лога.
-func NewLogging(level slog.Level, deph int) *slog.Logger {
+// Enabled определяет, должна ли обрабатываться запись с данным уровнем.
+func (h *LevelFilterHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return level >= h.minLevel
+}
 
-	// Custom level names for alignment (4 characters each).
-	levelNames := map[slog.Level]string{
-		slog.LevelError: "erro",
-		slog.LevelWarn:  "warn",
-		slog.LevelInfo:  "info",
-		slog.LevelDebug: "debu",
+// Handle передаёт запись внутреннему обработчику, если Enabled вернула true.
+func (h *LevelFilterHandler) Handle(ctx context.Context, r slog.Record) error {
+	return h.inner.Handle(ctx, r)
+}
+
+// WithAttrs возвращает новый обработчик с добавленными атрибутами.
+func (h *LevelFilterHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &LevelFilterHandler{
+		inner:    h.inner.WithAttrs(attrs),
+		minLevel: h.minLevel,
 	}
+}
 
-	// Create a text handler that writes to stderr.
-	// ReplaceAttr replaces the built-in slog.Level value with our custom string.
-	inner := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level:     level,
-		AddSource: false,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.LevelKey {
-				if l, ok := a.Value.Any().(slog.Level); ok {
-					if name, ok := levelNames[l]; ok {
-						return slog.String("level", name)
-					}
-				}
-			}
-			return a
-		},
-	})
-
-	// Wrap it with our custom handler.
-	log := slog.New(NewHandler(inner, WithDepth(deph)))
-
-	return log
+// WithGroup возвращает новый обработчик с добавленной группой.
+func (h *LevelFilterHandler) WithGroup(name string) slog.Handler {
+	return &LevelFilterHandler{
+		inner:    h.inner.WithGroup(name),
+		minLevel: h.minLevel,
+	}
 }
 
 // NewTintLogging создаёт логгер для отображения в удобном виде в косоли.
 func NewTintLogging(level string) *slog.Logger {
-	l, ok := logLevelMap[level]
-	if !ok {
-		l = slog.LevelInfo
+	l := slog.LevelInfo
+	if v, ok := logLevelMap[level]; ok {
+		l = v
 	}
 
-	opts := tint.Options{
-		Level:      l,
-		AddSource:  true,
-		TimeFormat: "2006.01.02T15:04:05.000MST", // 2023.11.22T01:06:52.121+05
+	baseHandler := slog.NewTextHandler(os.Stdout)
+
+	filterHandler := &LevelFilterHandler{
+		inner:    baseHandler,
+		minLevel: l,
 	}
 
-	log := slog.New(tint.NewTextHandler(os.Stdout, &opts))
+	log := slog.New(filterHandler)
 
 	return log
 }

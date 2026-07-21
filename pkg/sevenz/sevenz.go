@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -18,6 +17,7 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/kirsrus/iso2repo/models"
 	"github.com/spf13/cast"
+	"golang.org/x/exp/slog"
 )
 
 var once sync.Once
@@ -34,7 +34,7 @@ type SevenZ struct {
 // готовый к работе экземпляр SevenZ. Если 7z не найдена, возвращается ошибка.
 func NewSevenZ(log *slog.Logger) (*SevenZ, error) {
 	if log == nil {
-		log = slog.New(slog.NewTextHandler(io.Discard, nil))
+		log = slog.New(slog.NewTextHandler(io.Discard))
 	}
 
 	m := &SevenZ{

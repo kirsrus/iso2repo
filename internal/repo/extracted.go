@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/kirsrus/iso2repo/models"
+	"golang.org/x/exp/slog"
 )
 
 var _ models.Repoes = (*RepoExtracted)(nil)
@@ -31,7 +31,7 @@ type RepoExtracted struct {
 
 func NewRepoExtracted(fullPath string, log *slog.Logger) *RepoExtracted {
 	if log == nil {
-		log = slog.New(slog.NewTextHandler(io.Discard, nil))
+		log = slog.New(slog.NewTextHandler(io.Discard))
 	}
 
 	return &RepoExtracted{

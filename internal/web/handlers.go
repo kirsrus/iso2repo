@@ -3,7 +3,6 @@ package web
 import (
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kirsrus/iso2repo/models"
+	"golang.org/x/exp/slog"
 )
 
 // sortRepoViews сортирует список repoView по имени в алфавитном порядке.
@@ -343,7 +343,7 @@ func (m *Web) handleIndex(c *gin.Context) {
 		// Рендерим шаблон sources.txt в буфер и отдаём как text/plain
 		buf := new(strings.Builder)
 		if err := m.templates.ExecuteTemplate(buf, "sources.txt", data); err != nil {
-			m.log.Error("ошибка рендеринга шаблона sources.txt", slog.String("error", err.Error()))
+			m.log.Error("ошибка рендеринга шаблона sources.txt", err, slog.String("error", err.Error()))
 			c.Status(http.StatusInternalServerError)
 			return
 		}
@@ -401,7 +401,7 @@ func (m *Web) handleSources(c *gin.Context) {
 		// Рендерим шаблон sources.txt в буфер и отдаём как text/plain
 		buf := new(strings.Builder)
 		if err := m.templates.ExecuteTemplate(buf, "sources.txt", data); err != nil {
-			m.log.Error("ошибка рендеринга шаблона sources.txt", slog.String("error", err.Error()))
+			m.log.Error("ошибка рендеринга шаблона sources.txt", err, slog.String("error", err.Error()))
 			c.Status(http.StatusInternalServerError)
 			return
 		}

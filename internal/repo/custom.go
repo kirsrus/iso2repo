@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/kirsrus/iso2repo/models"
 	"github.com/kirsrus/iso2repo/pkg/deb"
+	"golang.org/x/exp/slog"
 )
 
 var _ models.Repoes = (*RepoCustom)(nil)
@@ -81,7 +81,7 @@ type RepoCustom struct {
 // fullPath — абсолютный путь к директории с .deb файлами.
 func NewRepoCustom(fullPath string, log *slog.Logger) *RepoCustom {
 	if log == nil {
-		log = slog.New(slog.NewTextHandler(io.Discard, nil))
+		log = slog.New(slog.NewTextHandler(io.Discard))
 	}
 
 	m := &RepoCustom{
