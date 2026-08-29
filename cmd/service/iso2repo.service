@@ -1,0 +1,14 @@
+[Unit]
+Description=HTTP-транслятор локальных APT-репозиториев iso2repo
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart={{.ExecPath}}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
