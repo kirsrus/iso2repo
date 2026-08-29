@@ -7,12 +7,14 @@ require (
 	github.com/cockroachdb/errors v1.11.3
 	github.com/gin-gonic/gin v1.10.0
 	github.com/google/uuid v1.3.0
+	github.com/kardianos/service v1.2.3
 	github.com/klauspost/compress v1.17.9
 	github.com/spf13/cast v1.8.0
 	github.com/spf13/cobra v1.10.2
 	github.com/ulikunitz/xz v0.5.15
 	golang.org/x/exp v0.0.0-20230307190834-24139beb5833
 	golang.org/x/sync v0.11.0
+	golang.org/x/sys v0.20.0
 )
 
 require (
@@ -48,7 +50,6 @@ require (
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.23.0 // indirect
 	golang.org/x/net v0.25.0 // indirect
-	golang.org/x/sys v0.20.0 // indirect
 	golang.org/x/text v0.15.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

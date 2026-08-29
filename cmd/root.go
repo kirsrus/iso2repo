@@ -36,7 +36,15 @@ APT-репозитория и предоставляет к ним доступ 
 `,
 	SilenceErrors: true, // Отключает вывод описания ошибок
 	SilenceUsage:  true, // Отключает вывод текста "описание использования" при ошибке
-	Run:           rootRun,
+	Run: func(cmd *cobra.Command, args []string) {
+		// Если программа запущена как служба Windows, запускаем её через
+		// диспетчер служб. В остальных случаях выполняется обычная логика.
+		if runAsService() {
+			runService(cmd, args)
+			return
+		}
+		rootRun(cmd, args)
+	},
 }
 
 func Execute() {
