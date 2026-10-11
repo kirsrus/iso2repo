@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -199,6 +200,18 @@ func (m *Repo) syncRepos(ctx context.Context, fileEvent models.FileEvent) error 
 		// Если да — обновляем репозиторий, пересканируя его содержимое.
 		existingRepo := m.findExistingDirRepo(fileEvent)
 		if existingRepo != nil {
+			// Если директория репозитория удалена с диска — удаляем репозиторий
+			// из списка и сообщаем о его потере.
+			if !m.dirRepoExists(existingRepo) {
+				m.repos.LoadAndDelete(existingRepo.Metadata().Name)
+				m.sendEvent(ctx, models.RepoEvent{
+					Repo:      existingRepo,
+					EventType: models.RepoLost,
+				})
+				m.log.Info(fmt.Sprintf("удалён репозиторий %s (директория удалена)", existingRepo.Metadata().Name))
+				return nil
+			}
+
 			if customRepo, ok := existingRepo.(*RepoCustom); ok {
 				customRepo.Refresh()
 				m.sendEvent(ctx, models.RepoEvent{
@@ -281,6 +294,16 @@ func (m *Repo) findExistingDirRepo(fileEvent models.FileEvent) models.Repoes {
 	})
 
 	return found
+}
+
+// dirRepoExists проверяет, существует ли на диске директория репозитория.
+func (m *Repo) dirRepoExists(repo models.Repoes) bool {
+	stat, err := os.Stat(repo.Metadata().Path)
+	if err != nil {
+		return false
+	}
+
+	return stat.IsDir()
 }
 
 // iso2dirInPath находит первое вхождение имени директории с суфиксом ".iso" в путь path.

@@ -10,4 +10,3 @@ __*
 servers.*
 !.golangci.yaml
 *.drawio
-*.ffs_gui
