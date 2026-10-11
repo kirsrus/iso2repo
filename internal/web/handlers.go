@@ -324,6 +324,7 @@ func (m *Web) registerRoutes() {
 	m.router.GET("/sources.list", m.handleSources)
 	m.router.GET("/repo/*path", m.handleRepo)
 	m.router.GET("/static/*path", m.handleStatic)
+	m.router.NoRoute(m.handleNotFound)
 }
 
 // handleIndex обработчик корневого маршрута.
@@ -354,6 +355,12 @@ func (m *Web) handleIndex(c *gin.Context) {
 
 	data := newIndexData(&m.repos, m.rootDir, m.copyright, m.version, m.port)
 	c.HTML(http.StatusOK, "index.html", data)
+}
+
+// handleNotFound обработчик для несуществующих маршрутов (404).
+// Отдаёт HTML-страницу 404.html с кодом статуса 404 Not Found.
+func (m *Web) handleNotFound(c *gin.Context) {
+	c.HTML(http.StatusNotFound, "404.html", nil)
 }
 
 // handleFavicon обработчик маршрута /favicon.ico.
