@@ -654,7 +654,13 @@ func formatSize(size int64) string {
 func (m *Web) handleStatic(c *gin.Context) {
 	// Путь после /static/, например "/images/logo.png"
 	reqPath := c.Param("path")
-	reqPath = strings.TrimPrefix(reqPath, "/")
+	// Нормализуем путь: path.Clean сам убирает ведущие/завершающие слеши
+	// и схлопывает двойные. Иначе завершающий "/" из URL директории
+	// (например /static/cmd/) приводит к двойным слешам в ссылках.
+	reqPath = path.Clean(reqPath)
+	if reqPath == "." || reqPath == "/" {
+		reqPath = ""
+	}
 
 	// Полный путь в файловой системе
 	fullPath := filepath.Join(m.rootDir, reqPath)
@@ -732,10 +738,10 @@ func makeStaticBreadcrumbs(reqPath string) []crumb {
 			// Последний сегмент — текущая директория (без ссылки)
 			result = append(result, crumb{Name: seg})
 		} else {
-			currentPath += "/" + seg
+			currentPath = path.Join(currentPath, seg)
 			result = append(result, crumb{
 				Name: seg,
-				URL:  "/static" + currentPath + "/",
+				URL:  path.Join("/static", currentPath) + "/",
 			})
 		}
 	}
@@ -751,7 +757,7 @@ func makeStaticEntryViews(reqPath string, entries []fs.DirEntry, parentInfo os.F
 
 	baseURL := "/static"
 	if reqPath != "" {
-		baseURL += "/" + reqPath
+		baseURL = path.Join(baseURL, reqPath)
 	}
 
 	for _, e := range entries {
@@ -760,7 +766,7 @@ func makeStaticEntryViews(reqPath string, entries []fs.DirEntry, parentInfo os.F
 			continue
 		}
 
-		url := baseURL + "/" + e.Name()
+		url := path.Join(baseURL, e.Name())
 		isDir := e.IsDir()
 		if isDir {
 			url += "/"
