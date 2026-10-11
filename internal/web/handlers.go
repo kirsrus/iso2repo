@@ -466,20 +466,20 @@ func (m *Web) handleRepo(c *gin.Context) {
 	repoName := parts[0]
 
 	if repoName == "" {
-		c.Status(http.StatusNotFound)
+		m.handleNotFound(c)
 		return
 	}
 
 	// Ищем репозиторий по имени
 	value, ok := m.repos.Load(repoName)
 	if !ok {
-		c.Status(http.StatusNotFound)
+		m.handleNotFound(c)
 		return
 	}
 
 	repo, ok := value.(models.Repoes)
 	if !ok {
-		c.Status(http.StatusNotFound)
+		m.handleNotFound(c)
 		return
 	}
 
@@ -492,7 +492,7 @@ func (m *Web) handleRepo(c *gin.Context) {
 	// Получаем список содержимого директории
 	entries, err := repo.List(c.Request.Context(), innerPath)
 	if err != nil {
-		c.Status(http.StatusNotFound)
+		m.handleNotFound(c)
 		return
 	}
 
@@ -508,7 +508,7 @@ func (m *Web) handleRepo(c *gin.Context) {
 
 		parentEntries, err := repo.List(c.Request.Context(), parentDir)
 		if err != nil {
-			c.Status(http.StatusNotFound)
+			m.handleNotFound(c)
 			return
 		}
 
@@ -522,7 +522,7 @@ func (m *Web) handleRepo(c *gin.Context) {
 		}
 
 		if !fileFound {
-			c.Status(http.StatusNotFound)
+			m.handleNotFound(c)
 			return
 		}
 
@@ -537,7 +537,7 @@ func (m *Web) handleRepo(c *gin.Context) {
 		}
 
 		// Если не удалось открыть как файл — 404
-		c.Status(http.StatusNotFound)
+		m.handleNotFound(c)
 		return
 	}
 
@@ -676,14 +676,14 @@ func (m *Web) handleStatic(c *gin.Context) {
 	absRoot, _ := filepath.Abs(m.rootDir)
 	absFull, _ := filepath.Abs(fullPath)
 	if !strings.HasPrefix(absFull, absRoot) {
-		c.Status(http.StatusNotFound)
+		m.handleNotFound(c)
 		return
 	}
 
 	// Проверяем, существует ли путь
 	info, err := os.Stat(fullPath)
 	if err != nil {
-		c.Status(http.StatusNotFound)
+		m.handleNotFound(c)
 		return
 	}
 
@@ -696,7 +696,7 @@ func (m *Web) handleStatic(c *gin.Context) {
 	// Это директория — читаем её содержимое
 	entries, err := os.ReadDir(fullPath)
 	if err != nil {
-		c.Status(http.StatusNotFound)
+		m.handleNotFound(c)
 		return
 	}
 
