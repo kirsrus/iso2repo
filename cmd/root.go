@@ -59,20 +59,21 @@ func init() {
 	rootCmd.PersistentFlags().String(FlagRootDir, "", "корневая директория со образами репозиториев")
 	rootCmd.PersistentFlags().Duration(FlagPollInterval, 60*time.Second, "интервал опроса директории")
 	rootCmd.PersistentFlags().Int(FlagPort, 4309, "порт WEB-интерфейса")
-	rootCmd.PersistentFlags().Bool(FlagLogging, false, "серверное логирование")
+	rootCmd.PersistentFlags().Bool(FlagNoColor, false, "серверное логирование")
 }
 
 func rootRun(cmd *cobra.Command, _ []string) {
 	var err error
 
 	levelFlag, _ := cmd.Flags().GetString(FlagLevel)
-	// flagLogging, _ := cmd.Flags().GetBool(FlagLogging)
+	flagLogging, _ := cmd.Flags().GetBool(FlagNoColor)
 
-	log := logging.NewTintLogging(levelFlag)
-
-	// if flagLogging {
-	// 	log = logging.NewLoggingWithStringLevel(levelFlag, 1)
-	// }
+	log := slog.Default()
+	if flagLogging {
+		log = logging.NewTintLogging(levelFlag)
+	} else {
+		log = logging.NewColorLogging(levelFlag)
+	}
 
 	log.Info(fmt.Sprintf("программа iso2repo стартовала; версия %s", version))
 
