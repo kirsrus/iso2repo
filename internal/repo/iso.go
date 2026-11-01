@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/kirsrus/iso2repo/models"
 	"github.com/kirsrus/iso2repo/pkg/sevenz"
@@ -22,12 +23,21 @@ type RepoIso struct {
 	repoType models.RepoType
 	sevenZ   *sevenz.SevenZ
 
+	// mu защищает кэши ниже при параллельных HTTP-запросах.
+	mu sync.RWMutex
+
 	// Кэшированный список файлов в образе. Считывается из ISO
 	// только при первом обращении, а затем хранится только здесь.
 	cacheISOFiles []models.Entry
 
 	// Индикатор заполненности кэша cacheISOFiles.
 	cacheISOFilesIsFull bool
+
+	// Кэшированный результат RepoString. Содержимое ISO-образа неизменяемо,
+	// поэтому строка формируется один раз (с запуском 7z) и далее
+	// отдаётся из кэша без обращения к внешним процессам.
+	repoString        string
+	repoStringIsValid bool
 }
 
 func NewRepoIso(fullPath string, log *slog.Logger) (*RepoIso, error) {
@@ -63,13 +73,23 @@ func (m *RepoIso) Metadata() models.Repo {
 }
 
 func (m *RepoIso) IsRepo() bool {
-	if len(m.cacheISOFiles) == 0 {
+	m.mu.Lock()
+
+	if !m.cacheISOFilesIsFull {
 		files, err := m.sevenZ.ListFiles(m.path)
 		if err != nil {
+			m.mu.Unlock()
+
 			return false
 		}
 		m.cacheISOFiles = files
+
+		// Фиксируем заполненность кэша, чтобы последующие List()/RepoString()
+		// не выполняли листинг ISO повторно.
+		m.cacheISOFilesIsFull = true
 	}
+
+	m.mu.Unlock()
 
 	// Проверяем, что диск является дистрибутивом.
 	// Для этого ищем в корне папку /dists, и если в ней есть подпапки и хотя бы
@@ -113,7 +133,46 @@ func (m *RepoIso) IsRepo() bool {
 //
 // Если на любом этапе данные не найдены или произошла ошибка, возвращается пустая строка.
 // Результат возвращается в формате "deb http://0.0.0.0/repo/%s %s %s"
+// RepoString возвращает строковое представление репозитория для клиентов.
+// Результат вычисляется один раз (с запуском процессов 7z) и кэшируется:
+// содержимое ISO-образа неизменяемо, поэтому повторные вызовы отдают
+// закэшированную строку мгновенно, без обращения к внешним процессам.
 func (m *RepoIso) RepoString() string {
+	// Быстрый путь — чтение из кэша под блокировкой чтения.
+	m.mu.RLock()
+	if m.repoStringIsValid {
+		result := m.repoString
+		m.mu.RUnlock()
+
+		return result
+	}
+	m.mu.RUnlock()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Повторная проверка после захвата блокировки записи —
+	// пока мы ждали, результат мог быть вычислен другой горутиной.
+	if m.repoStringIsValid {
+		return m.repoString
+	}
+
+	result := m.computeRepoString()
+
+	// Пустую строку (ошибку) не кэшируем — дадим шанс пересчитать при
+	// следующем запросе, например если ISO был временно недоступен.
+	if result != "" {
+		m.repoString = result
+		m.repoStringIsValid = true
+	}
+
+	return result
+}
+
+// computeRepoString выполняет фактическое вычисление строки репозитория.
+// Вызывается только при удержании m.mu (записи), поэтому внутренние
+// обращения к кэшу не блокируют.
+func (m *RepoIso) computeRepoString() string {
 	// Убеждаемся, что кэш файлов загружен
 	if !m.cacheISOFilesIsFull {
 		files, err := m.sevenZ.ListFiles(m.path)
@@ -126,11 +185,7 @@ func (m *RepoIso) RepoString() string {
 	}
 
 	// 1. Получаем содержимое каталога /dists
-	dists, err := m.List(context.Background(), "/dists")
-	if err != nil {
-		m.log.Warn("не удалось прочитать /dists", slog.String("error", err.Error()))
-		return ""
-	}
+	dists := m.listCached("/dists")
 
 	// 2. Ищем первую директорию внутри /dists — это имя дистрибутива
 	distributeName := ""
@@ -146,11 +201,7 @@ func (m *RepoIso) RepoString() string {
 	}
 
 	// 3. Ищем файл Release внутри /dists/<distributeName>
-	distEntries, err := m.List(context.Background(), "/dists/"+distributeName)
-	if err != nil {
-		m.log.Warn("не удалось прочитать /dists/"+distributeName, slog.String("error", err.Error()))
-		return ""
-	}
+	distEntries := m.listCached("/dists/" + distributeName)
 
 	releaseFound := false
 	for _, v := range distEntries {
@@ -195,8 +246,8 @@ func (m *RepoIso) RepoString() string {
 				}
 				// 6. Проверяем, что для компонента существует директория
 				//    /dists/<distributeName>/<component>
-				compEntries, err := m.List(context.Background(), "/dists/"+distributeName+"/"+pClean)
-				if err != nil || len(compEntries) == 0 {
+				compEntries := m.listCached("/dists/" + distributeName + "/" + pClean)
+				if len(compEntries) == 0 {
 					// Директория не найдена — пропускаем компонент
 					continue
 				}
@@ -228,25 +279,14 @@ func (m *RepoIso) RepoString() string {
 	return result
 }
 
-// List возвращает список записей по указанному пути внутри образа.
-// Путь должен быть относительным корня образа, без ведущего "/".
-// Для корневого каталога передаётся пустая строка.
-func (m *RepoIso) List(ctx context.Context, path string) ([]models.Entry, error) {
-	if !m.cacheISOFilesIsFull {
-		var err error
-		m.cacheISOFiles, err = m.sevenZ.ListFiles(m.path)
-
-		if err != nil {
-			return []models.Entry{}, err
-		}
-		m.cacheISOFilesIsFull = true
-	}
-
+// listCached возвращает содержимое кэша по указанному пути.
+// Вызывается только при удержании m.mu (записи) — не блокирует.
+func (m *RepoIso) listCached(path string) []models.Entry {
 	// Нормализуем путь: убираем ведущий и завершающий слеши
 	path = strings.Trim(path, "/")
 	if path == "" {
 		// Корневой каталог — возвращаем всё дерево
-		return m.cacheISOFiles, nil
+		return m.cacheISOFiles
 	}
 
 	// Разбиваем путь на сегменты и рекурсивно ищем нужную директорию
@@ -264,9 +304,34 @@ func (m *RepoIso) List(ctx context.Context, path string) ([]models.Entry, error)
 		}
 		if !found {
 			// Директория не найдена — возвращаем пустой результат
-			return []models.Entry{}, nil
+			return []models.Entry{}
 		}
 	}
+
+	return entries
+}
+
+// List возвращает список записей по указанному пути внутри образа.
+// Путь должен быть относительным корня образа, без ведущего "/".
+// Для корневого каталога передаётся пустая строка.
+func (m *RepoIso) List(ctx context.Context, path string) ([]models.Entry, error) {
+	m.mu.Lock()
+
+	if !m.cacheISOFilesIsFull {
+		var err error
+		m.cacheISOFiles, err = m.sevenZ.ListFiles(m.path)
+
+		if err != nil {
+			m.mu.Unlock()
+
+			return []models.Entry{}, err
+		}
+		m.cacheISOFilesIsFull = true
+	}
+
+	entries := m.listCached(path)
+
+	m.mu.Unlock()
 
 	return entries, nil
 }

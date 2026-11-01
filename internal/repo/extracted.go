@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/kirsrus/iso2repo/models"
 	"golang.org/x/exp/slog"
@@ -21,12 +22,20 @@ type RepoExtracted struct {
 	path     string
 	repoType models.RepoType
 
+	// mu защищает кэши ниже при параллельных HTTP-запросах.
+	mu sync.RWMutex
+
 	// Кэшированный список файлов в директории репозитория.
 	// Считывается только при первом обращении, затем хранится здесь.
 	cacheFiles []models.Entry
 
 	// Индикатор заполненности кэша cacheFiles.
 	cacheFilesIsFull bool
+
+	// Кэшированный результат RepoString: строка формируется один раз,
+	// при последующих вызовах отдаётся из кэша.
+	repoString        string
+	repoStringIsValid bool
 }
 
 func NewRepoExtracted(fullPath string, log *slog.Logger) *RepoExtracted {
@@ -79,7 +88,7 @@ func (m *RepoExtracted) IsRepo() bool {
 //
 //	deb [arch=amd64] http://repo.loc:4309/repo/1.7_loader.iso 1.7_x86-64 contrib main non-free
 //
-// Алгоритм работы:
+// Алгоритм работы (см. computeRepoString):
 //  1. Ищем в корне каталог /dists.
 //  2. Внутри /dists ищем первую поддиректорию — это имя дистрибутива (например, "1.7_x86-64").
 //  3. Внутри директории дистрибутива ищем файл "Release".
@@ -90,8 +99,43 @@ func (m *RepoExtracted) IsRepo() bool {
 //  7. Сортируем компоненты и формируем итоговую строку.
 //
 // Если на любом этапе данные не найдены или произошла ошибка, возвращается пустая строка.
-// Результат возвращается в формате "deb http://0.0.0.0/repo/%s %s %s"
+// Результат вычисляется один раз и кэшируется: строка зависит только от
+// содержимого /dists, которое не меняется.
 func (m *RepoExtracted) RepoString() string {
+	// Быстрый путь — чтение из кэша под блокировкой чтения.
+	m.mu.RLock()
+	if m.repoStringIsValid {
+		result := m.repoString
+		m.mu.RUnlock()
+
+		return result
+	}
+	m.mu.RUnlock()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Повторная проверка после захвата блокировки записи —
+	// пока мы ждали, результат мог быть вычислен другой горутиной.
+	if m.repoStringIsValid {
+		return m.repoString
+	}
+
+	result := m.computeRepoString()
+
+	// Пустую строку (ошибку) не кэшируем — дадим шанс пересчитать при
+	// следующем запросе, например если директория была временно недоступна.
+	if result != "" {
+		m.repoString = result
+		m.repoStringIsValid = true
+	}
+
+	return result
+}
+
+// computeRepoString выполняет фактическое вычисление строки репозитория.
+// Вызывается только при удержании m.mu (записи).
+func (m *RepoExtracted) computeRepoString() string {
 	// 1. Получаем содержимое каталога /dists
 	distsPath := filepath.Join(m.path, "dists")
 	distsDir, err := os.ReadDir(distsPath)
@@ -195,10 +239,14 @@ func (m *RepoExtracted) RepoString() string {
 // Путь должен быть относительным корня репозитория, без ведущего "/".
 // Для корневого каталога передаётся пустая строка.
 func (m *RepoExtracted) List(ctx context.Context, path string) ([]models.Entry, error) {
+	m.mu.Lock()
+
 	if !m.cacheFilesIsFull {
 		var err error
 		m.cacheFiles, err = m.readFilesFromFS(m.path)
 		if err != nil {
+			m.mu.Unlock()
+
 			return []models.Entry{}, err
 		}
 		m.cacheFilesIsFull = true
@@ -208,7 +256,10 @@ func (m *RepoExtracted) List(ctx context.Context, path string) ([]models.Entry, 
 	path = strings.Trim(path, "/")
 	if path == "" {
 		// Корневой каталог — возвращаем всё дерево
-		return m.cacheFiles, nil
+		entries := m.cacheFiles
+		m.mu.Unlock()
+
+		return entries, nil
 	}
 
 	// Разбиваем путь на сегменты и рекурсивно ищем нужную директорию
@@ -226,9 +277,13 @@ func (m *RepoExtracted) List(ctx context.Context, path string) ([]models.Entry, 
 		}
 		if !found {
 			// Директория не найдена — возвращаем пустой результат
+			m.mu.Unlock()
+
 			return []models.Entry{}, nil
 		}
 	}
+
+	m.mu.Unlock()
 
 	return entries, nil
 }
