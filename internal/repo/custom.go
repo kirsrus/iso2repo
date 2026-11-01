@@ -202,13 +202,61 @@ func (m *RepoCustom) Open(ctx context.Context, path string) (io.ReadCloser, erro
 }
 
 // scanDebFiles сканирует директорию репозитория и собирает информацию о .deb файлах.
+// Сначала выполняется лёгкая проверка состава файлов (путь, размер, время изменения).
+// Если состав не изменился с предыдущего сканирования, тяжёлая обработка (вычисление
+// хэшей, извлечение метаданных, регенерация Packages и Release) пропускается.
 func (m *RepoCustom) scanDebFiles() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.debFiles = make([]debFileInfo, 0)
+	// Лёгкое сканирование: собираем только служебную информацию о .deb файлах.
+	stamps := make([]debFileStamp, 0)
 
 	err := filepath.WalkDir(m.path, func(currentPath string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Пропускаем директории
+		if d.IsDir() {
+			return nil
+		}
+
+		// Интересуемся только .deb файлами
+		if !strings.HasSuffix(strings.ToLower(d.Name()), ".deb") {
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			m.log.Warn("не удалось получить информацию о файле", slog.String("file", currentPath))
+			return nil
+		}
+
+		stamps = append(stamps, debFileStamp{
+			path:    currentPath,
+			size:    info.Size(),
+			modTime: info.ModTime(),
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		m.log.Warn("ошибка сканирования директории", slog.String("path", m.path), slog.Any("error", err))
+	}
+
+	// Если состав файлов не изменился — пропускаем тяжёлое пересканирование.
+	if !m.debFilesChanged(stamps) {
+		m.log.Debug("изменений в составе файлов не обнаружено, сканирование пропущено",
+			slog.Int("deb_files", len(m.debFiles)), slog.String("path", m.path))
+
+		return
+	}
+
+	m.debFiles = make([]debFileInfo, 0, len(stamps))
+
+	err = filepath.WalkDir(m.path, func(currentPath string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -265,7 +313,7 @@ func (m *RepoCustom) scanDebFiles() {
 		return m.debFiles[i].Name < m.debFiles[j].Name
 	})
 
-	m.log.Debug("сканирование завершено", slog.Int("deb_files", len(m.debFiles)))
+	m.log.Debug("сканирование завершено", slog.Int("deb_files", len(m.debFiles)), slog.String("path", m.path))
 
 	// Генерируем содержимое Packages и Release (важен порядок: сначала Packages, потом Release)
 	m.generatePackagesContent()
@@ -273,6 +321,53 @@ func (m *RepoCustom) scanDebFiles() {
 
 	// Инвалидируем кэш дерева
 	m.cacheFilesIsFull = false
+}
+
+// debFileStamp хранит лёгкую информацию о .deb файле, достаточную для
+// определения факта изменения состава файлов без чтения их содержимого.
+type debFileStamp struct {
+	path    string
+	size    int64
+	modTime time.Time
+}
+
+// debFilesChanged сравнивает текущий лёгкий снимок файлов с кэшированным
+// состоянием debFiles. Возвращает true, если состав, количество, размеры
+// или время изменения файлов отличаются от закэшированных.
+func (m *RepoCustom) debFilesChanged(stamps []debFileStamp) bool {
+	// Первое сканирование или изменение количества файлов.
+	if len(stamps) != len(m.debFiles) {
+		return true
+	}
+
+	current := make(map[string]debFileInfo, len(m.debFiles))
+	for _, f := range m.debFiles {
+		current[f.Path] = f
+	}
+
+	for _, st := range stamps {
+		old, ok := current[st.path]
+		// Файл исчез, появился новый или был изменён (размер/время модификации).
+		if !ok || old.Size != st.size || !old.FileTime.Equal(st.modTime) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasDebFile проверяет, известен ли репозиторию .deb файл по указанному пути.
+func (m *RepoCustom) HasDebFile(path string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, f := range m.debFiles {
+		if f.Path == path {
+			return true
+		}
+	}
+
+	return false
 }
 
 // computeHashes вычисляет MD5, SHA1 и SHA256 хэши файла за один проход чтения.

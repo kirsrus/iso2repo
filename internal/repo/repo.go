@@ -124,7 +124,11 @@ func (m *Repo) syncRepos(ctx context.Context, fileEvent models.FileEvent) error 
 		if existingRepo != nil {
 			// Репозиторий уже существует. Если это custom-репозиторий — обновляем его,
 			// пересканируя директорию и отправляя событие об обновлении.
-			if customRepo, ok := existingRepo.(*RepoCustom); ok {
+			// Обновление выполняется только если событие касается нового .deb файла,
+			// ещё не известного репозиторию (при первичной синхронизации watcher
+			// присылает событие для каждого уже существующего файла).
+			if customRepo, ok := existingRepo.(*RepoCustom); ok &&
+				isDebFileName(fileEvent.File.Name) && !customRepo.HasDebFile(fileEvent.File.Path) {
 				customRepo.Refresh()
 				m.sendEvent(ctx, models.RepoEvent{
 					Repo:      customRepo,
@@ -212,7 +216,11 @@ func (m *Repo) syncRepos(ctx context.Context, fileEvent models.FileEvent) error 
 				return nil
 			}
 
-			if customRepo, ok := existingRepo.(*RepoCustom); ok {
+			// Обновление выполняется только если удалённый .deb файл был известен
+			// репозиторию — иначе состав файлов не изменился и пересканирование
+			// не требуется.
+			if customRepo, ok := existingRepo.(*RepoCustom); ok &&
+				isDebFileName(fileEvent.File.Name) && customRepo.HasDebFile(fileEvent.File.Path) {
 				customRepo.Refresh()
 				m.sendEvent(ctx, models.RepoEvent{
 					Repo:      customRepo,
@@ -328,6 +336,11 @@ func (m *Repo) isoDirFullPath(path string, isoDir string) string {
 	}
 
 	return before + isoDir
+}
+
+// isDebFileName проверяет, что имя файла имеет суффикс .deb (без учёта регистра).
+func isDebFileName(name string) bool {
+	return strings.HasSuffix(strings.ToLower(name), ".deb")
 }
 
 // sendEvent безопасно отправляет событие в канал changeRepos.
