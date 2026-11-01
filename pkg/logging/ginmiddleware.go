@@ -65,11 +65,19 @@ func NewGinWithConfig(logger *slog.Logger, config GinConfig) gin.HandlerFunc {
 
 		switch {
 		case c.Writer.Status() >= http.StatusBadRequest && c.Writer.Status() < http.StatusInternalServerError:
-			logger.LogAttrs(context.Background(), config.ClientErrorLevel, c.Errors.String(), attributes...)
+			errString := c.Errors.String()
+			if errString == "" {
+				errString = "запрос с ошибкой"
+			}
+			logger.LogAttrs(context.Background(), config.ClientErrorLevel, errString, attributes...)
 		case c.Writer.Status() >= http.StatusInternalServerError:
+			errString := c.Errors.String()
+			if errString == "" {
+				errString = "запрос с ошибкой"
+			}
 			logger.LogAttrs(context.Background(), config.ServerErrorLevel, c.Errors.String(), attributes...)
 		default:
-			logger.LogAttrs(context.Background(), config.DefaultLevel, "входящий запрос", attributes...)
+			logger.LogAttrs(context.Background(), config.DefaultLevel, "запрос успешный", attributes...)
 		}
 	}
 }
